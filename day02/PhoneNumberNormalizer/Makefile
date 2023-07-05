@@ -13,3 +13,10 @@ down	:
 
 run		:
 		go run main.go
+
+
+20 30
+
+28 + 4
+
+20
