@@ -1,0 +1,12 @@
+version: "3.9"
+
+services:
+  myapp:
+    build: ./server/
+    container_name: myapp
+    ports:
+      - 127.0.0.1:8080:8080
+  test:
+    build:
+      context: ./server/
+      dockerfile: Dockerfile_test
