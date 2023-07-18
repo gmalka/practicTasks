@@ -30,6 +30,7 @@ func (h Handler) HandleString(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Page not found", http.StatusNotFound)
 		return
 	}
+	defer r.Body.Close()
 
 	b, err := io.ReadAll(r.Body)
 	if err != nil {
