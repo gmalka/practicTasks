@@ -1,0 +1,16 @@
+{{define "client"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Client create page</title>
+</head>
+<body>
+    <form id="clientForm" name="clientForm" action="/user/client" method="post" class="mt-4">
+        <label for="client">Название приложения</label>
+        <input type="text" id="client" name="client" autocomplete="off">
+        <button type="submit" name="submitBtn">Создать</button>
+    </form>
+</body>
+</html>
+{{end}}

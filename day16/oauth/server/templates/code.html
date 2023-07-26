@@ -1,0 +1,23 @@
+{{define "code"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Code page</title>
+</head>
+<body>
+    <form id="codeForm" name="codeForm" action="/signin" method="post" class="mt-4">
+        <p>Приложение запрашивает следующие разрешения:</p>
+        <p>{{ .}}</p>
+        <button type="submit" name="submitBtn">Разрешить</button>
+    </form>
+    <script>
+        var path = window.location.href;
+
+        var code = document.getElementById("codeForm")
+
+        code.action = path
+    </script>
+</body>
+</html>
+{{end}}

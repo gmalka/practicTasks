@@ -1,0 +1,20 @@
+{{define "registration"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Registration page</title>
+</head>
+<body>
+    <form id="signUpForm" name="signUpForm" action="/signup" method="post" class="mt-4">
+        <label for="login">Логин</label>
+        <input type="login" id="login" name="login" autocomplete="off">
+        <label for="password">Пароль</label>
+        <input type="password" id="password" name="password" autocomplete="off">
+        <label for="secret">Секрет</label>
+        <input type="text" id="secret" name="secret" autocomplete="off">
+        <button type="submit" name="submitBtn">Зарегистрироваться</button>
+    </form>
+</body>
+</html>
+{{end}}
