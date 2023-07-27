@@ -8,7 +8,6 @@ import (
 	"log"
 	authrepository "mytesting/pkg/repository/auth_repository"
 	clientrepository "mytesting/pkg/repository/client_repository"
-	codesrepository "mytesting/pkg/repository/codes_repository"
 	userrepository "mytesting/pkg/repository/user_repository"
 	"net/http"
 	"net/url"
@@ -32,11 +31,10 @@ type Handler struct {
 	auth    authrepository.Auth
 	clients clientrepository.Clients
 	users   userrepository.UserRepotisory
-	codes   codesrepository.Codes
 }
 
-func NewHandler(auth authrepository.Auth, clients clientrepository.Clients, users userrepository.UserRepotisory, codes codesrepository.Codes) Handler {
-	return Handler{auth: auth, clients: clients, users: users, codes: codes}
+func NewHandler(auth authrepository.Auth, clients clientrepository.Clients, users userrepository.UserRepotisory) Handler {
+	return Handler{auth: auth, clients: clients, users: users}
 }
 
 func (h Handler) InitRouter() http.Handler {
