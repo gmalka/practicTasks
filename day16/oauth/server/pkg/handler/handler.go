@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"log"
@@ -47,11 +48,12 @@ func (h Handler) InitRouter() http.Handler {
 	r.GET("/signin", h.GetLoginForm)
 	r.POST("/signin", h.Login)
 
+	r.GET("/authorize", h.GenerateToken)
+
 	oauthGroup := r.Group("/oauth")
 	oauthGroup.Use(h.CheckUserToken)
 	oauthGroup.GET("/", h.GenerateCodeForm)
 	oauthGroup.POST("/", h.GenerateCode)
-	oauthGroup.GET("/authorize", h.GenerateToken)
 
 	api := r.Group("/api")
 	api.Use(h.CheckUserToken)
@@ -74,15 +76,17 @@ func (h Handler) ApiGetInfo(ctx *gin.Context) {
 	d, ok := ctx.Get("username")
 	if !ok {
 		http.Error(ctx.Writer, "WTF", http.StatusInternalServerError)
+		return
 	}
 
 	v, ok := d.(authrepository.AuthData)
 	if !ok {
 		http.Error(ctx.Writer, "WTF", http.StatusInternalServerError)
+		return
 	}
 
 	if v.TokenType == usernameToken || v.TokenType == allToken {
-		ctx.JSON(http.StatusOK, struct{
+		ctx.JSON(http.StatusOK, struct {
 			Username string
 		}{
 			Username: v.Username,
@@ -97,11 +101,13 @@ func (h Handler) ApiGetSecret(ctx *gin.Context) {
 	d, ok := ctx.Get("username")
 	if !ok {
 		http.Error(ctx.Writer, "WTF", http.StatusInternalServerError)
+		return
 	}
 
 	v, ok := d.(authrepository.AuthData)
 	if !ok {
 		http.Error(ctx.Writer, "WTF", http.StatusInternalServerError)
+		return
 	}
 
 	if v.TokenType == secretToken || v.TokenType == allToken {
@@ -111,7 +117,7 @@ func (h Handler) ApiGetSecret(ctx *gin.Context) {
 			return
 		}
 
-		ctx.JSON(http.StatusOK, struct{
+		ctx.JSON(http.StatusOK, struct {
 			Secret string
 		}{
 			Secret: user.Secret,
@@ -124,7 +130,6 @@ func (h Handler) ApiGetSecret(ctx *gin.Context) {
 
 func (h Handler) GenerateToken(ctx *gin.Context) {
 	client_id := ctx.Query("client_id")
-	redirect_uri := ctx.Query("redirect_uri")
 	client_secret := ctx.Query("client_secret")
 	code := ctx.Query("code")
 
@@ -135,26 +140,27 @@ func (h Handler) GenerateToken(ctx *gin.Context) {
 	}
 
 	codeStruct := struct {
-		Id    string
-		Time  time.Time
-		Scope string
+		Id       string
+		Username string
+		Time     time.Time
+		Scope    string
 	}{}
 
 	json.Unmarshal([]byte(b), &codeStruct)
 
 	id, err := strconv.Atoi(client_id)
 	if err != nil {
-		http.Error(ctx.Writer, err.Error(), http.StatusInternalServerError)
+		ctx.AbortWithError(http.StatusInternalServerError, err)
 		return
 	}
-	name, secret, ok := h.clients.GetById(id)
+	_, secret, ok := h.clients.GetById(id)
 	if !ok {
 		http.Error(ctx.Writer, "Cant find id", http.StatusInternalServerError)
 		return
 	}
 
 	if secret != client_secret {
-		http.Error(ctx.Writer, "Incorrect secret", http.StatusInternalServerError)
+		ctx.AbortWithError(http.StatusInternalServerError, errors.New("Incorrect secret"))
 		return
 	}
 
@@ -163,18 +169,24 @@ func (h Handler) GenerateToken(ctx *gin.Context) {
 		return
 	}
 
-	token := h.auth.NewToken(name, codeStruct.Scope)
-	p, _ := url.Parse(redirect_uri)
-	q := p.Query()
-
-	p.RawQuery = q.Encode()
+	token := h.auth.NewToken(codeStruct.Username, codeStruct.Scope)
 
 	ctx.JSON(200, token)
-	ctx.Redirect(301, p.String())
 }
 
-// http://localhost:8080/oauth?client_id=103971&redirect_uri=http://localhost:8080
 func (h Handler) GenerateCode(ctx *gin.Context) {
+	d, ok := ctx.Get("username")
+	if !ok {
+		http.Error(ctx.Writer, "WTF", http.StatusInternalServerError)
+		return
+	}
+
+	v, ok := d.(authrepository.AuthData)
+	if !ok {
+		http.Error(ctx.Writer, "WTF", http.StatusInternalServerError)
+		return
+	}
+
 	client_id := ctx.Query("client_id")
 	redirect_uri := ctx.Query("redirect_uri")
 	scope := ctx.Query("scope")
@@ -187,20 +199,22 @@ func (h Handler) GenerateCode(ctx *gin.Context) {
 		http.Error(ctx.Writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	_, _, ok := h.clients.GetById(id)
+	_, _, ok = h.clients.GetById(id)
 	if !ok {
 		http.Error(ctx.Writer, "cant find program", http.StatusInternalServerError)
 		return
 	}
 
 	codeStruct := struct {
-		Id    string
-		Time  time.Time
-		Scope string
+		Id       string
+		Username string
+		Time     time.Time
+		Scope    string
 	}{
-		Id:    client_id,
-		Time:  time.Now(),
-		Scope: scope,
+		Id:       client_id,
+		Username: v.Username,
+		Time:     time.Now(),
+		Scope:    scope,
 	}
 	b, _ := json.Marshal(codeStruct)
 	message, err := h.auth.NewCryptedMessage(b)
@@ -214,6 +228,12 @@ func (h Handler) GenerateCode(ctx *gin.Context) {
 }
 
 func (h Handler) GenerateCodeForm(ctx *gin.Context) {
+	id := ctx.Query("client_id")
+	i, _ := strconv.Atoi(id)
+	if _, _, ok := h.clients.GetById(i); !ok {
+		http.Error(ctx.Writer, "unknow id", http.StatusInternalServerError)
+		return
+	}
 	scope := ctx.Query("scope")
 	data := strings.Builder{}
 	if scope == "" || scope == usernameToken {
@@ -243,11 +263,13 @@ func (h Handler) getClient(ctx *gin.Context) {
 	d, ok := ctx.Get("username")
 	if !ok {
 		http.Error(ctx.Writer, "WTF", http.StatusInternalServerError)
+		return
 	}
 
 	v, ok := d.(authrepository.AuthData)
 	if !ok {
 		http.Error(ctx.Writer, "WTF", http.StatusInternalServerError)
+		return
 	}
 	s, _ := ctx.Params.Get("client")
 
@@ -272,8 +294,29 @@ func (h Handler) getClient(ctx *gin.Context) {
 }
 
 func (h Handler) registerNewClientForm(ctx *gin.Context) {
+	d, ok := ctx.Get("username")
+	if !ok {
+		http.Error(ctx.Writer, "WTF", http.StatusInternalServerError)
+		return
+	}
+
+	v, ok := d.(authrepository.AuthData)
+	if !ok {
+		http.Error(ctx.Writer, "WTF", http.StatusInternalServerError)
+		return
+	}
+	user, _ := h.users.GetByName(v.Username)
+
+	str := strings.Builder{}
+	str.WriteString(`{{define "clients"}}`)
+	for k := range user.Clients {
+		str.WriteString(fmt.Sprintf(`<a href="http://localhost:8080/user/client/%s">%s</a><br>`, k, k))
+	}
+	str.WriteString(`{{end}}`)
+
 	fp := path.Join("./templates", "client.html")
 	tmpl, err := template.ParseFiles(fp)
+	tmpl.Parse(str.String())
 	if err != nil {
 		http.Error(ctx.Writer, err.Error(), http.StatusInternalServerError)
 		return
@@ -289,11 +332,13 @@ func (h Handler) registerNewClient(ctx *gin.Context) {
 	d, ok := ctx.Get("username")
 	if !ok {
 		http.Error(ctx.Writer, "WTF", http.StatusInternalServerError)
+		return
 	}
 
 	v, ok := d.(authrepository.AuthData)
 	if !ok {
 		http.Error(ctx.Writer, "WTF", http.StatusInternalServerError)
+		return
 	}
 
 	data := struct {
@@ -310,23 +355,26 @@ func (h Handler) registerNewClient(ctx *gin.Context) {
 
 	h.users.AddClientToUser(v.Username, data.Client)
 
-	ctx.String(http.StatusOK, "%s", data.Client)
+	ctx.Redirect(301, "/user/client")
 }
 
 func (h Handler) GetUserData(ctx *gin.Context) {
 	d, ok := ctx.Get("username")
 	if !ok {
 		http.Error(ctx.Writer, "WTF", http.StatusInternalServerError)
+		return
 	}
 
 	v, ok := d.(authrepository.AuthData)
 	if !ok {
 		http.Error(ctx.Writer, "WTF", http.StatusInternalServerError)
+		return
 	}
 
 	u, err := h.users.GetByName(v.Username)
 	if err != nil {
 		http.Error(ctx.Writer, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	data := struct {
@@ -344,8 +392,9 @@ func (h Handler) GetUserData(ctx *gin.Context) {
 
 func (h Handler) CheckUserToken(ctx *gin.Context) {
 	s, err := ctx.Cookie(jwtCookieName)
-	if err != nil {
+	if err != nil && err.Error() != "http: named cookie not present" {
 		ctx.Redirect(301, "/signin")
+		return
 	}
 
 	if s == "" {
@@ -355,6 +404,13 @@ func (h Handler) CheckUserToken(ctx *gin.Context) {
 	data, err := h.auth.CheckToken(s, userToken)
 	if err != nil {
 		ctx.Redirect(301, "/signin")
+		return
+	}
+
+	_, err = h.users.GetByName(data.Username)
+	if err != nil {
+		ctx.Redirect(301, "/signin")
+		return
 	}
 
 	ctx.Set("username", data)
@@ -369,8 +425,11 @@ func (h Handler) GetLoginForm(ctx *gin.Context) {
 		return
 	}
 
-	if err := tmpl.ExecuteTemplate(ctx.Writer, "login", nil); err != nil {
+	data := ctx.Query("from")
+
+	if err := tmpl.ExecuteTemplate(ctx.Writer, "login", data); err != nil {
 		http.Error(ctx.Writer, err.Error(), http.StatusInternalServerError)
+		return
 	}
 }
 
@@ -389,9 +448,9 @@ func (h Handler) Login(ctx *gin.Context) {
 
 	token := h.auth.NewToken(user.Username, userToken)
 
-	fmt.Println(token)
 	ctx.SetCookie(jwtCookieName, token, int(time.Minute*30), "", "", true, false)
-	ctx.Redirect(301, "/user")
+
+	ctx.Redirect(301, "/user/client")
 }
 
 func (h Handler) GetRegisterForm(ctx *gin.Context) {
@@ -404,6 +463,7 @@ func (h Handler) GetRegisterForm(ctx *gin.Context) {
 
 	if err := tmpl.ExecuteTemplate(ctx.Writer, "registration", nil); err != nil {
 		http.Error(ctx.Writer, err.Error(), http.StatusInternalServerError)
+		return
 	}
 }
 
